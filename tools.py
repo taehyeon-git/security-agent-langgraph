@@ -281,6 +281,8 @@ SECURITY_RULES = [
             "검증되지 않은 입력이 전달되면 "
             "임의 코드 실행 위험이 있습니다."
         ),
+        "file_types": {"python", "javascript"},
+        "remediation": "eval 대신 허용 목록과 안전한 파서를 사용하세요.",
     },
 
     {
@@ -293,6 +295,8 @@ SECURITY_RULES = [
             "동적 코드 실행으로 인해 "
             "임의 코드 실행 위험이 있습니다."
         ),
+        "file_types": {"python", "javascript"},
+        "remediation": "동적 코드 실행을 제거하고 명시적인 함수 호출로 바꾸세요.",
     },
 
     {
@@ -305,6 +309,8 @@ SECURITY_RULES = [
             "외부 입력이 포함되면 "
             "OS 명령어 인젝션 위험이 있습니다."
         ),
+        "file_types": {"python"},
+        "remediation": "subprocess를 shell=False와 인자 배열 방식으로 호출하세요.",
     },
 
     {
@@ -318,6 +324,8 @@ SECURITY_RULES = [
             "쉘을 통한 명령 실행은 "
             "명령어 인젝션 위험을 높입니다."
         ),
+        "file_types": {"python"},
+        "remediation": "shell=False를 사용하고 명령과 인자를 리스트로 분리하세요.",
     },
 
     {
@@ -330,6 +338,8 @@ SECURITY_RULES = [
             "신뢰할 수 없는 pickle 데이터의 "
             "역직렬화는 코드 실행으로 이어질 수 있습니다."
         ),
+        "file_types": {"python"},
+        "remediation": "JSON 등 안전한 직렬화 형식을 사용하고 입력의 무결성을 검증하세요.",
     },
 
     {
@@ -342,6 +352,8 @@ SECURITY_RULES = [
             "TLS 인증서 검증을 끄면 "
             "중간자 공격 위험이 증가합니다."
         ),
+        "file_types": {"python", "javascript", "yaml", "env"},
+        "remediation": "인증서 검증을 활성화하고 신뢰할 CA를 설정하세요.",
     },
 
     {
@@ -354,6 +366,8 @@ SECURITY_RULES = [
             "운영 환경의 디버그 모드는 "
             "내부 정보 노출 위험이 있습니다."
         ),
+        "file_types": {"python", "javascript", "yaml", "env"},
+        "remediation": "운영 설정에서 디버그 모드를 끄고 환경별 설정을 분리하세요.",
     },
 
     {
@@ -366,8 +380,137 @@ SECURITY_RULES = [
             "신뢰할 수 없는 YAML을 처리한다면 "
             "안전한 로더 사용 여부를 확인해야 합니다."
         ),
+        "file_types": {"python"},
+        "remediation": "yaml.safe_load를 사용하거나 SafeLoader를 명시하세요.",
+    },
+
+    {
+        "name": "SQL 문자열 조합",
+        "severity": "HIGH",
+        "pattern": re.compile(
+            r"(?i)(?:execute|executemany|query|raw)\s*\([^\n]*(?:f[\"']|\.format\s*\(|%s|\+\s*\w+|\$\{)"
+        ),
+        "description": "외부 입력이 SQL 문자열에 합쳐지면 SQL Injection으로 이어질 수 있습니다.",
+        "file_types": {"python", "javascript"},
+        "remediation": "문자열 조합 대신 DB 드라이버의 매개변수 바인딩을 사용하세요.",
+    },
+
+    {
+        "name": "XSS 위험 DOM 삽입",
+        "severity": "HIGH",
+        "pattern": re.compile(r"(?i)\.(?:innerHTML|outerHTML)\s*=|document\.write\s*\("),
+        "description": "검증되지 않은 값이 HTML로 해석되면 XSS가 발생할 수 있습니다.",
+        "file_types": {"javascript"},
+        "remediation": "textContent를 사용하거나 검증된 HTML sanitizer로 값을 정화하세요.",
+    },
+
+    {
+        "name": "XSS 위험 템플릿 렌더링",
+        "severity": "HIGH",
+        "pattern": re.compile(r"\brender_template_string\s*\("),
+        "description": "사용자 입력을 템플릿 문자열로 렌더링하면 XSS나 템플릿 인젝션 위험이 있습니다.",
+        "file_types": {"python"},
+        "remediation": "고정된 템플릿 파일과 자동 이스케이프를 사용하세요.",
+    },
+
+    {
+        "name": "경로 조작 가능 입력",
+        "severity": "HIGH",
+        "pattern": re.compile(
+            r"(?i)(?:open|send_file|send_from_directory|path\.(?:join|resolve))\s*\([^\n]*(?:request|params|query|body|argv|input)"
+        ),
+        "description": "외부 입력이 파일 경로에 직접 사용되면 상위 경로 탈출이나 임의 파일 접근 위험이 있습니다.",
+        "file_types": {"python", "javascript"},
+        "remediation": "기준 디렉터리로 정규화한 뒤 결과 경로가 그 내부인지 확인하고 파일명 허용 목록을 적용하세요.",
+    },
+
+    {
+        "name": "SSRF 가능 외부 URL 요청",
+        "severity": "HIGH",
+        "pattern": re.compile(
+            r"(?i)(?:requests\.(?:get|post|put|delete|request)|httpx\.(?:get|post|request)|fetch|axios\.(?:get|post)|urllib\.request\.urlopen)\s*\([^\n]*(?:request|params|query|body|url)"
+        ),
+        "description": "사용자가 제어하는 URL로 서버가 요청하면 내부망 또는 메타데이터 서비스가 노출될 수 있습니다.",
+        "file_types": {"python", "javascript"},
+        "remediation": "허용된 스킴·호스트·포트만 통과시키고 사설/루프백 IP와 리다이렉트를 차단하세요.",
+    },
+
+    {
+        "name": "과도한 CORS 허용",
+        "severity": "MEDIUM",
+        "pattern": re.compile(
+            r"(?i)(?:allow_origins|allowedOrigins|cors_origins|access-control-allow-origin)\s*[:=]\s*(?:[\"']\*[\"']|\[\s*[\"']\*[\"']\s*\])"
+        ),
+        "description": "모든 출처를 허용하는 CORS 정책은 의도하지 않은 웹 사이트의 접근을 허용할 수 있습니다.",
+        "file_types": {"python", "javascript", "yaml", "env"},
+        "remediation": "신뢰할 수 있는 출처를 명시적으로 나열하고 credentials 사용 여부를 함께 검토하세요.",
+    },
+
+    {
+        "name": "컨테이너 privileged 모드",
+        "severity": "HIGH",
+        "pattern": re.compile(r"(?i)^\s*privileged\s*:\s*true\b"),
+        "description": "privileged 컨테이너는 호스트에 광범위한 권한을 가집니다.",
+        "file_types": {"yaml"},
+        "remediation": "privileged를 끄고 필요한 capability만 선택적으로 추가하세요.",
+    },
+
+    {
+        "name": "Docker root 사용자",
+        "severity": "MEDIUM",
+        "pattern": re.compile(r"(?i)^\s*USER\s+(?:root|0)\s*$"),
+        "description": "컨테이너가 root 권한으로 실행되면 침해 시 영향이 커집니다.",
+        "file_types": {"dockerfile"},
+        "remediation": "전용 비권한 사용자를 만들고 USER 지시문으로 전환하세요.",
+    },
+
+    {
+        "name": "Docker curl 파이프 실행",
+        "severity": "HIGH",
+        "pattern": re.compile(r"(?i)\b(?:curl|wget)\b[^|]*\|\s*(?:sh|bash)\b"),
+        "description": "원격 스크립트를 검증 없이 셸로 실행하면 공급망 공격에 노출될 수 있습니다.",
+        "file_types": {"dockerfile"},
+        "remediation": "파일을 먼저 내려받아 고정된 체크섬이나 서명을 검증한 뒤 실행하세요.",
+    },
+
+    {
+        "name": "환경 설정의 전체 CORS 허용",
+        "severity": "MEDIUM",
+        "pattern": re.compile(r"(?i)^\s*(?:CORS_ORIGINS|ALLOWED_ORIGINS)\s*=\s*\*\s*$"),
+        "description": "환경 설정에서 모든 출처를 허용하고 있습니다.",
+        "file_types": {"env"},
+        "remediation": "쉼표로 구분된 신뢰 출처 목록을 환경별로 지정하세요.",
     },
 ]
+
+
+FILE_TYPE_STRATEGIES = {
+    "python": "Python 함수 호출, 웹 프레임워크, 역직렬화 및 명령 실행 규칙",
+    "javascript": "JavaScript/TypeScript DOM, 네트워크 요청, 명령 실행 및 SQL 규칙",
+    "yaml": "YAML 인프라·컨테이너 설정과 권한/CORS 규칙",
+    "dockerfile": "Docker 이미지 빌드, 사용자 권한 및 원격 스크립트 실행 규칙",
+    "env": ".env 운영 설정, 민감정보 및 보안 옵션 규칙",
+    "generic": "파일 형식을 특정할 수 없어 공통 보안 규칙만 적용",
+}
+
+
+def _detect_file_type(file_path: str) -> str:
+    """파일 이름과 확장자를 이용해 적용할 분석 전략을 선택합니다."""
+
+    name = os.path.basename(file_path).lower()
+    extension = os.path.splitext(name)[1]
+
+    if name == "dockerfile" or name.startswith("dockerfile."):
+        return "dockerfile"
+    if name == ".env" or name.startswith(".env."):
+        return "env"
+    if extension == ".py":
+        return "python"
+    if extension in {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}:
+        return "javascript"
+    if extension in {".yaml", ".yml"}:
+        return "yaml"
+    return "generic"
 
 
 # ============================================
@@ -405,13 +548,13 @@ def _safe_snippet(
 
 @tool(parse_docstring=True)
 def static_security_scan(file_path: str) -> str:
-    """소스코드의 대표적인 위험 함수와 보안 설정 패턴을 정적으로 검사합니다.
+    """파일 형식에 맞는 취약 패턴을 선택해 정적으로 검사합니다.
 
     Args:
         file_path: 정적 보안 분석을 수행할 소스코드 파일 경로.
 
     Returns:
-        발견된 보안 의심 패턴, 심각도, 줄 번호 및 설명.
+        발견된 보안 의심 패턴, 심각도, 줄·열 번호, 코드 근거 및 수정 안내.
     """
 
     content, error = _read_text_file(file_path)
@@ -419,24 +562,46 @@ def static_security_scan(file_path: str) -> str:
     if error:
         return error
 
+    file_type = _detect_file_type(file_path)
+    lines = content.splitlines()
     findings = []
 
     for line_number, line in enumerate(
-        content.splitlines(),
+        lines,
         start=1
     ):
 
         for rule in SECURITY_RULES:
 
-            if rule["pattern"].search(line):
+            supported_types = rule.get("file_types")
+
+            if (
+                file_type == "generic"
+                and supported_types
+            ):
+                continue
+
+            if (
+                file_type != "generic"
+                and supported_types
+                and file_type not in supported_types
+            ):
+                continue
+
+            match = rule["pattern"].search(line)
+
+            if match:
 
                 findings.append(
                     {
                         "line": line_number,
+                        "column": match.start() + 1,
                         "name": rule["name"],
                         "severity": rule["severity"],
                         "description": rule["description"],
-                        "snippet": _safe_snippet(line),
+                        "remediation": rule["remediation"],
+                        "context_start": max(1, line_number - 1),
+                        "context_end": min(len(lines), line_number + 1),
                     }
                 )
 
@@ -445,7 +610,9 @@ def static_security_scan(file_path: str) -> str:
         return (
             "정적 보안 점검 완료: "
             "현재 정의된 위험 패턴이 발견되지 않았습니다.\n"
-            f"파일: {file_path}\n\n"
+            f"파일: {file_path}\n"
+            f"분석 형식: {file_type}\n"
+            f"적용 전략: {FILE_TYPE_STRATEGIES[file_type]}\n\n"
             "주의: 간단한 패턴 기반 검사이므로 "
             "전문 SAST 도구를 대체하지 않습니다."
         )
@@ -469,6 +636,8 @@ def static_security_scan(file_path: str) -> str:
     result = [
         "정적 보안 점검 결과",
         f"파일: {file_path}",
+        f"분석 형식: {file_type}",
+        f"적용 전략: {FILE_TYPE_STRATEGIES[file_type]}",
         f"총 {len(findings)}건 발견",
         "",
     ]
@@ -480,19 +649,31 @@ def static_security_scan(file_path: str) -> str:
                 (
                     f"[{finding['severity']}] "
                     f"{finding['name']} "
-                    f"- {finding['line']}줄"
+                    f"- {finding['line']}줄 "
+                    f"{finding['column']}열"
                 ),
-
-                (
-                    f"  근거: "
-                    f"{finding['snippet']}"
-                ),
-
                 (
                     f"  설명: "
                     f"{finding['description']}"
                 ),
+            ]
+        )
 
+        result.append("  코드 근거:")
+
+        for context_line_number in range(
+            finding["context_start"],
+            finding["context_end"] + 1,
+        ):
+            marker = ">" if context_line_number == finding["line"] else " "
+            snippet = _safe_snippet(lines[context_line_number - 1])
+            result.append(
+                f"  {marker} {context_line_number:4} | {snippet}"
+            )
+
+        result.extend(
+            [
+                f"  수정 안내: {finding['remediation']}",
                 "",
             ]
         )
