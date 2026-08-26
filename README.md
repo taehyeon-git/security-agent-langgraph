@@ -76,12 +76,15 @@ $env:PYTHONUTF8=1; uv run langgraph dev --no-reload --allow-blocking
 
 정확히는 **LLM + 커스텀 보안 도구를 연결한 1차 보안 분석 에이전트**입니다.
 
-## 앞으로 발전 방향
+### 이번에 반영한 개선
 
-- 더 다양한 취약 패턴 추가: SQL Injection, XSS, 경로 조작, SSRF, CORS 오류 등으로 규칙을 확장합니다.
-- 줄 번호와 코드 근거 강화: 탐지 결과를 더 읽기 쉽게 만들고, 수정 예시까지 함께 제공합니다.
-- 파일 확장자별 분석 전략 분리: Python, JavaScript, YAML, Dockerfile, `.env` 등 파일 종류에 맞는 점검 로직을 적용합니다.
-- 위험도 계산 고도화: CVSS처럼 영향도, 공격 난이도, 노출 범위 등을 더 세분화합니다.
-- 전문 도구 연동: Bandit, Semgrep, Trivy 같은 SAST/컨테이너 보안 도구와 연결해 탐지 정확도를 높입니다.
-- 보고서 자동 생성: 점검 결과를 Markdown, PDF, CSV 형태로 저장할 수 있게 확장합니다.
-- CI/CD 연동: GitHub Actions에서 Pull Request마다 자동으로 1차 보안 점검을 수행하도록 발전시킬 수 있습니다.
+- 더 다양한 취약 패턴 추가: 기존 규칙에 SQL Injection, XSS, 경로 조작, SSRF, 과도한 CORS 허용, 컨테이너 privileged 모드, Docker 원격 스크립트 실행 패턴 등을 추가했습니다.
+- 파일 확장자별 분석 전략 분리: 파일명과 확장자를 기준으로 Python, JavaScript/TypeScript, YAML, Dockerfile, `.env`, 일반 파일을 구분하고 해당 형식의 규칙만 적용합니다. 탐지 결과에는 선택된 파일 형식과 분석 전략도 표시합니다.
+- 줄 번호와 코드 근거 강화: 탐지 위치를 줄·열 번호로 표시하고, 민감값을 마스킹한 앞뒤 코드 문맥과 취약점별 수정 안내를 함께 제공합니다.
+
+### 앞으로 발전시킬 항목
+
+- 위험도 계산 고도화: CVSS처럼 공격 난이도, 영향 범위, 노출 가능성을 세분화합니다.
+- 전문 도구 연동: Bandit, Semgrep, Trivy 같은 보안 도구와 연결해 정확도를 높입니다.
+- 보고서 자동 생성: Markdown, PDF, CSV 형태로 점검 결과를 저장합니다.
+- CI/CD 연동: GitHub Actions에서 Pull Request마다 자동 보안 점검을 수행합니다.
