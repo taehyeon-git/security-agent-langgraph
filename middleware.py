@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import ToolMessage
+from langchain.agents.middleware import after_agent, before_agent
 from langgraph.graph.message import add_messages
 
 logger = logging.getLogger("security_agent.middleware")
@@ -39,6 +42,7 @@ class SecurityState(TypedDict, total=False):
     request_time: str
 
 
+@before_agent(state_schema=SecurityState)
 def request_logging_middleware(state: SecurityState) -> dict[str, str]:
     """사용자 요청과 UTC 요청 시각을 콘솔에 기록합니다."""
 
@@ -54,6 +58,7 @@ def request_logging_middleware(state: SecurityState) -> dict[str, str]:
     return {"request_time": request_time}
 
 
+@before_agent(state_schema=SecurityState)
 def input_validation_middleware(state: SecurityState) -> dict[str, str]:
     """대상 파일의 존재 여부, 크기 및 확장자를 검증합니다.
 
@@ -106,15 +111,31 @@ def calculate_risk_level(finding_count: int) -> str:
     return "Critical"
 
 
-def risk_assessment_middleware(state: SecurityState) -> dict[str, str]:
+@after_agent(state_schema=SecurityState)
+def risk_assessment_middleware(state: SecurityState) -> dict[str, Any]:
     """State의 탐지 결과 개수를 기준으로 위험도를 계산합니다."""
 
-    finding_count = len(state.get("findings", []))
+    findings = list(state.get("findings", []))
+    if not findings:
+        for message in state.get("messages", []):
+            if not isinstance(message, ToolMessage):
+                continue
+            match = re.search(r"총\s+(\d+)건(?:의|\s)", str(message.content))
+            if not match:
+                continue
+            tool_name = getattr(message, "name", None) or "security_tool"
+            findings.extend(
+                {"source": tool_name, "index": index + 1}
+                for index in range(int(match.group(1)))
+            )
+
+    finding_count = len(findings)
     risk_level = calculate_risk_level(finding_count)
     logger.info("위험도 계산 완료 | findings=%d | risk=%s", finding_count, risk_level)
-    return {"risk_level": risk_level}
+    return {"findings": findings, "risk_level": risk_level}
 
 
+@after_agent(state_schema=SecurityState)
 def response_middleware(state: SecurityState) -> dict[str, list[AIMessage]]:
     """위험도와 권장 조치를 포함하는 통일된 최종 응답을 추가합니다."""
 

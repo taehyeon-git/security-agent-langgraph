@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain_core.messages import AnyMessage, HumanMessage, ToolMessage
-from langgraph.graph import END, START, StateGraph
 
 from middleware import (
     SecurityState,
@@ -54,71 +51,15 @@ def create_security_agent() -> Any:
         model="gpt-5.4-mini",
         tools=SECURITY_TOOLS,
         system_prompt=system_prompt,
+        state_schema=SecurityState,
+        middleware=[
+            request_logging_middleware,    # 요청 로깅
+            input_validation_middleware,   # 입력 파일 검증
+            response_middleware,           # 최종 응답 생성
+            risk_assessment_middleware,    # 위험도 계산
+        ],
     )
 
     return agent_executor
-
-
-def _extract_findings(messages: list[AnyMessage]) -> list[dict[str, Any]]:
-    """기존 보안 Tool 메시지의 탐지 건수를 State findings로 변환합니다."""
-
-    findings: list[dict[str, Any]] = []
-    for message in messages:
-        if not isinstance(message, ToolMessage):
-            continue
-        # tools.py의 기존 출력 형식("총 N건 ...")을 그대로 활용합니다.
-        match = re.search(r"총\s+(\d+)건(?:의|\s)", str(message.content))
-        if not match:
-            continue
-        tool_name = getattr(message, "name", None) or "security_tool"
-        for index in range(int(match.group(1))):
-            findings.append({"source": tool_name, "index": index + 1})
-    return findings
-
-
-security_agent = create_security_agent()
-
-
-def security_agent_node(state: SecurityState) -> dict[str, Any]:
-    """기존 Tool 호출 방식을 유지한 채 보안 에이전트를 실행합니다."""
-
-    input_messages = state.get("messages", [])
-    # file_path가 사용자 문장에 없더라도 에이전트가 검증된 대상만 분석하게 합니다.
-    agent_messages = [
-        *input_messages,
-        HumanMessage(
-            content=f"분석 대상 파일의 검증된 절대 경로는 다음과 같습니다: {state['file_path']}"
-        ),
-    ]
-    try:
-        result = security_agent.invoke({"messages": agent_messages})
-    except Exception as exc:
-        raise RuntimeError("Security Agent 실행 중 오류가 발생했습니다.") from exc
-
-    result_messages: list[AnyMessage] = result.get("messages", [])
-    return {
-        "messages": result_messages[len(agent_messages):],
-        "findings": _extract_findings(result_messages),
-    }
-
-
-def create_security_graph() -> Any:
-    """모든 미들웨어와 Security Agent를 순서대로 연결합니다."""
-
-    builder = StateGraph(SecurityState)
-    builder.add_node("request_logging", request_logging_middleware)
-    builder.add_node("input_validation", input_validation_middleware)
-    builder.add_node("security_agent", security_agent_node)
-    builder.add_node("risk_assessment", risk_assessment_middleware)
-    builder.add_node("response", response_middleware)
-    builder.add_edge(START, "request_logging")
-    builder.add_edge("request_logging", "input_validation")
-    builder.add_edge("input_validation", "security_agent")
-    builder.add_edge("security_agent", "risk_assessment")
-    builder.add_edge("risk_assessment", "response")
-    builder.add_edge("response", END)
-    return builder.compile()
-
-
-# LangGraph Studio에서 사용할 미들웨어 포함 그래프 내보내기
-agent = create_security_graph()
+# LangGraph Studio에서 사용할 미들웨어 포함 에이전트
+agent = create_security_agent()
