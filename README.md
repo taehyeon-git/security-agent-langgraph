@@ -1,87 +1,171 @@
 # Security Agent LangGraph
 
-이 프로젝트는 한마디로 **소스코드나 설정 파일을 읽고, 보안 문제가 있는지 자동으로 1차 점검해주는 보안 분석 에이전트**입니다.
+## 1. 프로젝트 개요
 
-기존 코딩 에이전트는 파일을 읽고 쓰고, 삭제하고, Python 코드를 실행하는 기능이 중심이었습니다. 이 프로젝트에서는 그 구조를 보안 용도에 맞게 바꾸어, 코드를 직접 수정하거나 실행하는 것보다 **보안 점검과 분석**에 초점을 두었습니다.
+Security Agent LangGraph는 소스코드와 설정 파일을 분석하여 보안 취약점, 민감정보 노출, 위험한 코드 패턴을 탐지하는 1차 보안 분석 에이전트입니다. LLM이 기존 보안 Tool을 선택해 파일을 읽고 정적 검사한 뒤 근거와 대응 방법을 한글로 설명합니다.
 
-예를 들어 사용자가 `tools.py 파일 보안 검사해줘`라고 요청하면 에이전트가 관련 파일을 읽고, 위험한 코드 패턴이나 민감정보가 있는지 확인한 다음 왜 위험한지와 어떻게 수정하면 되는지를 한글로 정리해줍니다.
+미들웨어 계층은 요청 처리의 공통 관심사를 에이전트 로직과 분리하기 위해 추가했습니다. 모든 요청을 같은 순서로 기록·검증하고, 탐지 건수에 따라 위험도를 계산하며, 일관된 최종 응답을 제공합니다.
 
-## 주요 기능
-
-- **파일 읽기/목록 확인**: 분석할 파일과 디렉터리를 확인합니다.
-- **민감정보 탐지**: API Key, 비밀번호, JWT, Private Key 같은 값이 코드에 하드코딩되어 있는지 검사합니다.
-- **정적 보안 점검**: `eval`, `exec`, `os.system`, `shell=True`, `pickle.load`, `verify=False` 같은 위험 패턴을 찾아냅니다.
-- **보안 체크리스트 제공**: Web, API, Python, Container, Cloud 분야별 기본 점검 항목을 알려줍니다.
-- **위험도 계산**: 발생 가능성과 영향도를 기준으로 Low / Medium / High / Critical 등급을 계산합니다.
-
-## 프로젝트 구조
+## 2. 전체 아키텍처
 
 ```text
 사용자
   ↓
-보안 에이전트(agent.py)
+Request Logging Middleware
   ↓
-어떤 보안 도구를 사용할지 판단
+Input Validation Middleware
   ↓
-보안 도구들(tools.py)
-  ├─ 파일 읽기
-  ├─ 민감정보 검사
-  ├─ 정적 보안 검사
-  ├─ 보안 체크리스트
-  └─ 위험도 계산
+Security Agent ──→ Security Tools (tools.py)
   ↓
-분석 결과 설명
+Risk Assessment Middleware
+  ↓
+Response Middleware
+  ↓
+최종 응답
 ```
 
-## 파일 설명
+공유 State의 주요 필드는 다음과 같습니다.
 
-- `agent.py`: AI가 어떤 역할을 하는지 정의하는 파일입니다. 보안 분석 전용 시스템 프롬프트와 사용할 도구 목록을 설정합니다.
-- `tools.py`: 실제 보안 작업을 수행하는 도구를 구현한 파일입니다. 파일 읽기, 민감정보 탐지, 정적 보안 점검, 체크리스트, 위험도 계산 기능이 들어 있습니다.
-- `langgraph.json`: LangGraph Studio가 `agent.py` 안의 에이전트를 실행할 수 있게 연결해주는 설정 파일입니다.
-- `day7_team_project_template.ipynb`: 팀 프로젝트 실습용 노트북 템플릿입니다.
-- `pyproject.toml`, `uv.lock`: 프로젝트 실행에 필요한 Python 의존성 설정 파일입니다.
-- `.env`: OpenAI API Key 같은 환경 변수를 넣는 파일입니다. 민감정보가 포함되므로 GitHub에는 업로드하지 않습니다.
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `messages` | `list[AnyMessage]` | 사용자, 에이전트, Tool 및 최종 응답 메시지 |
+| `file_path` | `str` | 검증 후 절대 경로로 정규화된 분석 파일 |
+| `findings` | `list[dict]` | 보안 Tool이 탐지한 항목 |
+| `risk_level` | `str` | Low, Medium, High, Critical 중 하나 |
 
-## 실행 방법
+## 3. Middleware 설명
 
-1. 패키지를 설치합니다.
+### Request Logging Middleware
 
-```bash
-uv sync
+- 역할: 사용자 요청, 대상 파일, UTC 요청 시각을 콘솔에 기록합니다.
+- 입력: `messages`, `file_path`
+- 출력: `request_time`
+- 예시: `2026-08-27T01:30:00+00:00 | file_path=app.py | request=보안 검사해줘`
+
+### Input Validation Middleware
+
+- 역할: 파일 존재 여부와 일반 파일 여부, 5MB 이하 크기, 기본 소스/설정 파일 확장자를 검증합니다.
+- 입력: `file_path`
+- 출력: 절대 경로로 정규화된 `file_path`
+- 예시: 존재하지 않는 `missing.py`를 전달하면 `FileNotFoundError`가 발생합니다. 실행 파일처럼 지원하지 않는 확장자는 `ValueError`가 발생합니다.
+
+### Risk Assessment Middleware
+
+- 역할: `findings` 개수를 다음 기준으로 위험도에 매핑합니다.
+- 입력: `findings`
+- 출력: `risk_level`
+- 예시: 탐지 결과가 4건이면 `High`입니다.
+
+| 탐지 개수 | 위험도 |
+|---:|---|
+| 0~1 | Low |
+| 2~3 | Medium |
+| 4~5 | High |
+| 6 이상 | Critical |
+
+### Response Middleware
+
+- 역할: 분석 파일, 탐지 건수, 위험도, 권장 조치를 포함하는 Markdown 최종 요약을 추가합니다.
+- 입력: `file_path`, `findings`, `risk_level`, `messages`
+- 출력: 최종 `AIMessage`
+- 예시: `탐지 결과: 4건 / 위험도: High / 권장 조치: 신속히 수정한 뒤 재검사`
+
+## 4. 프로젝트 구조
+
+```text
+security-agent/
+├── agent.py          # Security Agent 및 StateGraph 연결
+├── tools.py          # 파일·민감정보·정적 분석 보안 Tool
+├── middleware.py     # 네 가지 Middleware와 SecurityState
+├── langgraph.json    # LangGraph 실행 설정
+└── README.md         # 프로젝트 문서
 ```
 
-2. 루트 디렉터리에 `.env` 파일을 만들고 필요한 API Key를 설정합니다.
+추가로 `pyproject.toml`과 `uv.lock`은 Python 의존성을 관리하고, `.env`는 로컬 환경변수를 보관합니다.
 
-```bash
-OPENAI_API_KEY=your_openai_api_key_here
+## 5. 실행 방법
+
+Python 3.11 이상과 uv가 필요합니다.
+
+1. 의존성을 설치합니다.
+
+   ```bash
+   uv sync
+   ```
+
+2. 프로젝트 루트의 `.env`에 OpenAI API Key를 설정합니다. 실제 키는 Git에 커밋하지 마세요.
+
+   ```dotenv
+   OPENAI_API_KEY=your_openai_api_key_here
+   ```
+
+3. LangGraph 개발 서버를 실행합니다.
+
+   ```bash
+   uv run langgraph dev
+   ```
+
+   Windows PowerShell에서 reload 문제가 있으면 다음 명령을 사용할 수 있습니다.
+
+   ```powershell
+   $env:PYTHONUTF8=1; uv run langgraph dev --no-reload --allow-blocking
+   ```
+
+`langgraph.json`의 `agent` 그래프를 선택하고 아래와 같이 State를 전달합니다. `file_path`는 필수입니다.
+
+```json
+{
+  "messages": [
+    {"role": "user", "content": "이 파일의 민감정보와 위험한 코드 패턴을 검사해줘."}
+  ],
+  "file_path": "tools.py",
+  "findings": [],
+  "risk_level": "Low"
+}
 ```
 
-3. LangGraph Studio를 실행합니다.
+## 6. 동작 예시
 
-```bash
-uv run langgraph dev
+사용자 요청:
+
+```text
+file_path: examples/insecure.py
+message: 이 파일의 민감정보와 정적 보안 취약점을 검사해줘.
 ```
 
-Windows PowerShell에서는 다음 명령을 사용할 수 있습니다.
+분석 결과 예시:
 
-```powershell
-$env:PYTHONUTF8=1; uv run langgraph dev --no-reload --allow-blocking
+```text
+발견 사항
+- 하드코딩된 API Key 의심 패턴
+- shell=True 사용
+- eval 사용
+- TLS 인증 verify=False 사용
 ```
 
-## 팀원 설명용 요약
+4건이 탐지되었으므로 위험도 계산은 `4 → High`입니다. Response Middleware는 다음 형식의 최종 요약을 메시지에 추가합니다.
 
-기존 코딩 에이전트 구조를 보안 분석 에이전트로 변경했습니다. 사용자가 소스코드나 설정 파일의 보안 점검을 요청하면 에이전트가 파일을 확인하고, 민감정보 노출이나 위험한 코드 패턴을 자동으로 검사합니다.
+```markdown
+## 보안 분석 최종 요약
 
-검사 결과는 위험 원인, 영향, 위험도, 대응 방법 형태로 정리해서 제공합니다. 현재는 간단한 정규식 기반 정적 분석이라 전문 SAST 도구를 완전히 대체하는 건 아니고, 보안 점검의 1차 자동화 용도로 만든 구조입니다.
+- 분석 파일: `examples/insecure.py`
+- 탐지 결과: 4건
+- 위험도: **High**
+- 권장 조치: 영향 범위를 확인하고 탐지 항목을 신속히 수정한 뒤 재검사하세요.
+```
 
-정확히는 **LLM + 커스텀 보안 도구를 연결한 1차 보안 분석 에이전트**입니다.
+Security Agent의 상세 응답과 이 최종 요약은 `messages`에서 함께 확인할 수 있습니다.
 
-## 앞으로 발전 방향
+## 7. 향후 발전 방향
 
-- 더 다양한 취약 패턴 추가: SQL Injection, XSS, 경로 조작, SSRF, CORS 오류 등으로 규칙을 확장합니다.
-- 줄 번호와 코드 근거 강화: 탐지 결과를 더 읽기 쉽게 만들고, 수정 예시까지 함께 제공합니다.
-- 파일 확장자별 분석 전략 분리: Python, JavaScript, YAML, Dockerfile, `.env` 등 파일 종류에 맞는 점검 로직을 적용합니다.
-- 위험도 계산 고도화: CVSS처럼 영향도, 공격 난이도, 노출 범위 등을 더 세분화합니다.
-- 전문 도구 연동: Bandit, Semgrep, Trivy 같은 SAST/컨테이너 보안 도구와 연결해 탐지 정확도를 높입니다.
-- 보고서 자동 생성: 점검 결과를 Markdown, PDF, CSV 형태로 저장할 수 있게 확장합니다.
-- CI/CD 연동: GitHub Actions에서 Pull Request마다 자동으로 1차 보안 점검을 수행하도록 발전시킬 수 있습니다.
+- 변경 불가능한 저장소를 이용한 Audit Logging
+- 사용자 인증
+- 역할 기반 권한 관리
+- Semgrep 연동
+- Bandit 연동
+- Trivy 연동
+- PDF 보고서 생성
+- GitHub Actions 연동
+- 파일 형식별 탐지 규칙과 CVSS 기반 위험도 산정 고도화
+
+> 이 프로젝트는 정규식과 LLM을 활용한 1차 점검 도구이며 전문 SAST, 비밀 탐지, 컨테이너 스캐너를 완전히 대체하지 않습니다.
