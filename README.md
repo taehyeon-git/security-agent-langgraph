@@ -144,11 +144,11 @@ uv run langgraph dev --no-reload --allow-blocking
 
 LangGraph Studio에서 `agent` 그래프를 열면 요청 로깅, 입력 검증, 모델 호출, 도구 실행, 위험 평가, 응답 처리 미들웨어가 하나의 보안 분석 워크플로우로 연결된 것을 확인할 수 있습니다.
 
-![Security Agent 그래프 구조](docs/images/skill-agent-graph.png)
+<img src="docs/images/skill-agent-graph.png" alt="Security Agent 그래프 구조" width="100%">
 
 실행 과정에서는 사용자 요청에 맞는 보안 스킬이 선택되고, `load_skill` 도구를 통해 해당 스킬의 설명과 실행 지침을 불러옵니다. 아래 예시는 `semgrep-security` 스킬이 선택되어 LangGraph Studio에서 도구 실행 결과를 확인한 화면입니다.
 
-![Security Agent LangGraph Studio 실행 화면](docs/images/skill-agent-langgraph-studio.png)
+<img src="docs/images/skill-agent-langgraph-studio.png" alt="Security Agent LangGraph Studio 실행 화면" width="100%">
 
 ### 프로젝트 고도화 스킬 명시 실행
 
