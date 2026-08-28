@@ -180,6 +180,57 @@ LangGraph Studio에서 `agent` 그래프를 열면 요청 로깅, 입력 검증,
 
 `skill_name`을 생략하면 마지막 사용자 메시지를 기준으로 관련 스킬이 자동 선택됩니다.
 
+### 예시 질문 5가지
+
+스킬별 동작을 확인할 때 사용할 수 있는 대표 질문입니다. LangGraph Studio 입력에 그대로 붙여 넣어 실행할 수 있습니다.
+
+1. 단일 파일 보안 리뷰 — `security-review`
+
+```json
+{
+  "messages": [{"role": "user", "content": "tools.py에서 실제 악용 가능한 보안 취약점을 검토해줘."}],
+  "file_path": "tools.py",
+  "skill_name": "security-review"
+}
+```
+
+2. Semgrep 검사 실행 계획 — `semgrep-security`
+
+```json
+{
+  "messages": [{"role": "user", "content": "agent.py를 Semgrep으로 검사하기 위한 실행 계획을 작성해줘."}],
+  "file_path": "agent.py",
+  "skill_name": "semgrep-security"
+}
+```
+
+3. Semgrep 커스텀 규칙 작성 — `semgrep-rule-authoring`
+
+```json
+{
+  "messages": [{"role": "user", "content": "Python의 os.system 사용을 탐지하는 Semgrep 규칙과 테스트를 작성해줘."}],
+  "skill_name": "semgrep-rule-authoring"
+}
+```
+
+4. 민감정보 노출 점검 — `secrets-gitleaks`
+
+```json
+{
+  "messages": [{"role": "user", "content": "프로젝트에서 API Key, 비밀번호, 토큰 노출 가능성을 검사해줘."}],
+  "skill_name": "secrets-gitleaks"
+}
+```
+
+5. 비밀정보 + 의존성 통합 점검 — `secrets-gitleaks,dependency-scanning`
+
+```json
+{
+  "messages": [{"role": "user", "content": "비밀정보 탐지와 의존성 검사를 함께 수행하고 우선순위별 대응 방법을 알려줘."}],
+  "skill_name": "secrets-gitleaks,dependency-scanning"
+}
+```
+
 ## 테스트
 
 전체 회귀 테스트를 실행합니다.
