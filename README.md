@@ -46,26 +46,40 @@ Risk Assessment Middleware
 Response Middleware ────────── 한글 최종 요약
 ```
 
-## 프로젝트 구조
+## Agent 팀 GitHub 파일 구조
 
 ```text
 security-agent-langgraph/
-├── agent.py                 # 모델·도구·미들웨어를 조합한 LangGraph 에이전트
-├── middleware.py            # SecurityState 및 요청/스킬/위험도/응답 미들웨어
-├── tools.py                 # 파일·보안 분석 도구와 SKILL.md 로더
+├── day7_team_project_template.ipynb  # 팀 프로젝트 실습 노트북
 ├── skills/
-│   ├── dependency-scanning/SKILL.md
-│   ├── secrets-gitleaks/SKILL.md
-│   ├── security-agent-upgrade/SKILL.md
-│   ├── security-review/SKILL.md
-│   ├── semgrep-rule-authoring/SKILL.md
-│   ├── semgrep-security/SKILL.md
-│   └── threat-model-generation/SKILL.md
-├── tests/test_skills.py     # 스킬 탐색·선택·프롬프트 주입 테스트
-├── langgraph.json           # LangGraph Studio 그래프 진입점
-├── pyproject.toml           # Python 버전과 의존성
-└── uv.lock                  # 재현 가능한 의존성 잠금 파일
+│   ├── dependency-scanning/
+│   │   └── SKILL.md
+│   ├── secrets-gitleaks/
+│   │   └── SKILL.md
+│   ├── security-agent-upgrade/
+│   │   └── SKILL.md
+│   ├── security-review/
+│   │   └── SKILL.md
+│   ├── semgrep-rule-authoring/
+│   │   └── SKILL.md
+│   ├── semgrep-security/
+│   │   └── SKILL.md
+│   └── threat-model-generation/
+│       └── SKILL.md
+├── agent.py                         # Agent와 Middleware 연결
+├── tools.py                         # 보안 도구와 load_skills/load_skill
+├── middleware.py                    # SecurityState와 SkillMiddleware
+├── langgraph.json                   # LangGraph Studio 그래프 진입점
+├── .env                             # 로컬 API Key, Git 업로드 금지
+├── .gitignore                       # .env와 Python 생성 파일 제외
+├── pyproject.toml                   # Python 버전과 프로젝트 의존성
+├── uv.lock                          # 재현 가능한 의존성 잠금 파일
+├── tests/
+│   └── test_skills.py               # 스킬 로딩·라우팅 회귀 테스트
+└── README.md                        # 설치·실행·구조 문서
 ```
+
+스킬 파일은 요청하신 `skills/skill-name/skill.md` 역할을 합니다. 실제 파일명은 Agent Skills 표준과 검증 도구 호환성을 위해 대문자 `SKILL.md`를 사용합니다. `.env`는 로컬에만 존재하며 `.gitignore`에 등록되어 GitHub와 PR에 포함되지 않습니다.
 
 ## 포함된 보안 스킬
 
