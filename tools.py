@@ -1,4 +1,6 @@
 from langchain.tools import tool
+from pathlib import Path
+import json
 import os
 import re
 
@@ -8,6 +10,47 @@ import re
 # ============================================
 
 MAX_FILE_SIZE = 1_000_000  # 1 MB
+SKILLS_ROOT = Path(__file__).resolve().parent / "skills"
+
+
+def load_skills(skills_root: str | os.PathLike[str] | None = None) -> dict[str, dict[str, str]]:
+    """Load project skills from skills/<name>/SKILL.md (case-insensitive)."""
+    root = Path(skills_root).resolve() if skills_root else SKILLS_ROOT
+    loaded: dict[str, dict[str, str]] = {}
+    if not root.is_dir():
+        return loaded
+    for path in sorted(root.glob("*/[Ss][Kk][Ii][Ll][Ll].[Mm][Dd]")):
+        text = path.read_text(encoding="utf-8")
+        match = re.match(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", text, re.DOTALL)
+        if not match:
+            continue
+        metadata: dict[str, str] = {}
+        for line in match.group(1).splitlines():
+            if ":" in line:
+                key, value = line.split(":", 1)
+                metadata[key.strip()] = value.strip().strip('"\'')
+        name = metadata.get("name", path.parent.name)
+        loaded[name] = {"name": name, "description": metadata.get("description", ""), "instructions": match.group(2).strip(), "path": str(path)}
+    return loaded
+
+
+@tool(parse_docstring=True)
+def load_skill(skill_name: str = "") -> str:
+    """프로젝트 보안 스킬의 목록 또는 특정 스킬 지침을 불러옵니다.
+
+    Args:
+        skill_name: 불러올 스킬 이름. 비워 두면 사용 가능한 목록을 반환합니다.
+
+    Returns:
+        스킬 목록 또는 선택한 스킬의 설명과 전체 지침.
+    """
+    skills = load_skills()
+    if not skill_name.strip():
+        return json.dumps([{"name": s["name"], "description": s["description"]} for s in skills.values()], ensure_ascii=False, indent=2)
+    skill = skills.get(skill_name.strip().lower())
+    if not skill:
+        return f"오류: 알 수 없는 스킬입니다: {skill_name}. 사용 가능: {', '.join(skills)}"
+    return f"# {skill['name']}\n\n{skill['description']}\n\n{skill['instructions']}"
 
 
 def _read_text_file(file_path: str) -> tuple[str | None, str | None]:
@@ -852,6 +895,7 @@ CUSTOM_TOOLS = [
 FILE_TOOLS = [
     read_file,
     list_directory,
+    load_skill,
 ]
 
 

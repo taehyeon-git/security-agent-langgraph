@@ -12,6 +12,7 @@ from middleware import (
     request_logging_middleware,
     response_middleware,
     risk_assessment_middleware,
+    skill_middleware,
 )
 from tools import SECURITY_TOOLS
 
@@ -35,6 +36,7 @@ def create_security_agent() -> Any:
 - static_security_scan: 소스코드의 대표적인 취약 패턴을 정적으로 점검합니다.
 - security_checklist: 대상 영역별 보안 점검 항목을 제공합니다.
 - calculate_risk_score: 발생 가능성과 영향도를 바탕으로 위험도를 계산합니다.
+- load_skill: 설치된 보안 스킬 목록이나 특정 스킬의 지침을 확인합니다.
 
 작업 원칙:
 1. 파일 분석 요청을 받으면 추측하지 말고 먼저 관련 파일을 읽거나 검사 도구를 사용하세요.
@@ -55,6 +57,7 @@ def create_security_agent() -> Any:
         middleware=[
             request_logging_middleware,    # 요청 로깅
             input_validation_middleware,   # 입력 파일 검증
+            skill_middleware,              # 요청별 스킬 선택 및 프롬프트 주입
             response_middleware,           # 최종 응답 생성
             risk_assessment_middleware,    # 위험도 계산
         ],
