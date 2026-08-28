@@ -12,6 +12,7 @@ from langchain_core.messages import AIMessage, AnyMessage, SystemMessage
 from langchain_core.messages import ToolMessage
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse, after_agent, before_agent
 from langgraph.graph.message import add_messages
+from langgraph.runtime import Runtime
 from tools import load_skills
 
 logger = logging.getLogger("security_agent.middleware")
@@ -46,7 +47,7 @@ class SecurityState(TypedDict, total=False):
 
 
 @before_agent(state_schema=SecurityState)
-def request_logging_middleware(state: SecurityState) -> dict[str, str]:
+def request_logging_middleware(state: SecurityState, runtime: Runtime) -> dict[str, str]:
     """사용자 요청과 UTC 요청 시각을 콘솔에 기록합니다."""
 
     request_time = datetime.now(timezone.utc).isoformat()
@@ -62,7 +63,7 @@ def request_logging_middleware(state: SecurityState) -> dict[str, str]:
 
 
 @before_agent(state_schema=SecurityState)
-def input_validation_middleware(state: SecurityState) -> dict[str, str]:
+def input_validation_middleware(state: SecurityState, runtime: Runtime) -> dict[str, str]:
     """대상 파일이 지정된 경우 존재 여부, 크기 및 확장자를 검증합니다.
 
     Raises:
@@ -129,20 +130,33 @@ class SkillMiddleware(AgentMiddleware[SecurityState, Any]):
         selected = [name for name, words in self.KEYWORDS.items() if name in self.skills and any(word in query for word in words)]
         return selected[:self.max_skills]
 
-    def wrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
+    def _apply_skills(self, request: ModelRequest) -> ModelRequest | None:
+        """선택된 스킬 지침을 시스템 메시지에 주입한 요청을 반환합니다.
+
+        선택된 스킬이 없으면 None을 반환하여 원본 요청을 그대로 사용하도록 합니다.
+        동기/비동기 경로가 공유하는 순수 로직으로 I/O를 수행하지 않습니다.
+        """
+
         selected = self.select_skills(request.state)
         if not selected:
-            return handler(request)
+            return None
         blocks = [f"<skill name=\"{name}\">\n{self.skills[name]['instructions']}\n</skill>" for name in selected]
         current = request.system_message.content if request.system_message else ""
         updated_state = dict(request.state)
         updated_state["active_skills"] = selected
-        request = request.override(
+        logger.info("스킬 활성화 | skills=%s", ",".join(selected))
+        return request.override(
             system_message=SystemMessage(content=f"{current}\n\n## Activated project skills\n" + "\n\n".join(blocks)),
             state=updated_state,
         )
-        logger.info("스킬 활성화 | skills=%s", ",".join(selected))
-        return handler(request)
+
+    def wrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
+        updated = self._apply_skills(request)
+        return handler(updated if updated is not None else request)
+
+    async def awrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
+        updated = self._apply_skills(request)
+        return await handler(updated if updated is not None else request)
 
 
 skill_middleware = SkillMiddleware()
@@ -161,7 +175,7 @@ def calculate_risk_level(finding_count: int) -> str:
 
 
 @after_agent(state_schema=SecurityState)
-def risk_assessment_middleware(state: SecurityState) -> dict[str, Any]:
+def risk_assessment_middleware(state: SecurityState, runtime: Runtime) -> dict[str, Any]:
     """State의 탐지 결과 개수를 기준으로 위험도를 계산합니다."""
 
     findings = list(state.get("findings", []))
@@ -185,7 +199,7 @@ def risk_assessment_middleware(state: SecurityState) -> dict[str, Any]:
 
 
 @after_agent(state_schema=SecurityState)
-def response_middleware(state: SecurityState) -> dict[str, list[AIMessage]]:
+def response_middleware(state: SecurityState, runtime: Runtime) -> dict[str, list[AIMessage]]:
     """위험도와 권장 조치를 포함하는 통일된 최종 응답을 추가합니다."""
 
     findings = state.get("findings", [])

@@ -1,4 +1,5 @@
 from pathlib import Path
+import asyncio
 import unittest
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -65,6 +66,44 @@ class SkillLoadingTests(unittest.TestCase):
         self.assertIn("Secrets Detection with Gitleaks", captured["prompt"])
         self.assertNotIn("STRIDE Threat Model Generation", captured["prompt"])
         self.assertEqual(["secrets-gitleaks"], captured["state"]["active_skills"])
+
+    def test_async_middleware_injects_selected_skill(self) -> None:
+        class Request:
+            def __init__(self) -> None:
+                self.state = {"skill_name": "secrets-gitleaks"}
+                self.system_message = SystemMessage(content="base prompt")
+
+            def override(self, **values):
+                self.system_message = values["system_message"]
+                self.state = values["state"]
+                return self
+
+        captured = {}
+
+        async def handler(request):
+            captured["prompt"] = request.system_message.content
+            captured["state"] = request.state
+            return "ok"
+
+        result = asyncio.run(skill_middleware.awrap_model_call(Request(), handler))
+        self.assertEqual("ok", result)
+        self.assertIn("Secrets Detection with Gitleaks", captured["prompt"])
+        self.assertEqual(["secrets-gitleaks"], captured["state"]["active_skills"])
+
+    def test_async_middleware_passthrough_without_skill(self) -> None:
+        class Request:
+            def __init__(self) -> None:
+                self.state = {}
+                self.system_message = SystemMessage(content="base prompt")
+
+            def override(self, **values):  # pragma: no cover - should not be called
+                raise AssertionError("override should not run when no skill selected")
+
+        async def handler(request):
+            return request.system_message.content
+
+        result = asyncio.run(skill_middleware.awrap_model_call(Request(), handler))
+        self.assertEqual("base prompt", result)
 
 
 if __name__ == "__main__":
