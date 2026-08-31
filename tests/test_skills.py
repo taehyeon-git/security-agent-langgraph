@@ -51,21 +51,19 @@ class SkillLoadingTests(unittest.TestCase):
 
             def override(self, **values):
                 self.system_message = values["system_message"]
-                self.state = values["state"]
                 return self
 
         captured = {}
 
         def handler(request):
             captured["prompt"] = request.system_message.content
-            captured["state"] = request.state
             return "ok"
 
         result = skill_middleware.wrap_model_call(Request(), handler)
-        self.assertEqual("ok", result)
+        self.assertEqual("ok", result.model_response)
+        self.assertEqual({"active_skills": ["secrets-gitleaks"]}, result.command.update)
         self.assertIn("Secrets Detection with Gitleaks", captured["prompt"])
         self.assertNotIn("STRIDE Threat Model Generation", captured["prompt"])
-        self.assertEqual(["secrets-gitleaks"], captured["state"]["active_skills"])
 
     def test_async_middleware_injects_selected_skill(self) -> None:
         class Request:
@@ -75,20 +73,18 @@ class SkillLoadingTests(unittest.TestCase):
 
             def override(self, **values):
                 self.system_message = values["system_message"]
-                self.state = values["state"]
                 return self
 
         captured = {}
 
         async def handler(request):
             captured["prompt"] = request.system_message.content
-            captured["state"] = request.state
             return "ok"
 
         result = asyncio.run(skill_middleware.awrap_model_call(Request(), handler))
-        self.assertEqual("ok", result)
+        self.assertEqual("ok", result.model_response)
+        self.assertEqual({"active_skills": ["secrets-gitleaks"]}, result.command.update)
         self.assertIn("Secrets Detection with Gitleaks", captured["prompt"])
-        self.assertEqual(["secrets-gitleaks"], captured["state"]["active_skills"])
 
     def test_async_middleware_passthrough_without_skill(self) -> None:
         class Request:
