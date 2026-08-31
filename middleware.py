@@ -10,9 +10,17 @@ from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import AIMessage, AnyMessage, SystemMessage
 from langchain_core.messages import ToolMessage
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse, after_agent, before_agent
+from langchain.agents.middleware import (
+    AgentMiddleware,
+    ExtendedModelResponse,
+    ModelRequest,
+    ModelResponse,
+    after_agent,
+    before_agent,
+)
 from langgraph.graph.message import add_messages
 from langgraph.runtime import Runtime
+from langgraph.types import Command
 from tools import load_skills
 
 logger = logging.getLogger("security_agent.middleware")
@@ -130,33 +138,41 @@ class SkillMiddleware(AgentMiddleware[SecurityState, Any]):
         selected = [name for name, words in self.KEYWORDS.items() if name in self.skills and any(word in query for word in words)]
         return selected[:self.max_skills]
 
-    def _apply_skills(self, request: ModelRequest) -> ModelRequest | None:
-        """선택된 스킬 지침을 시스템 메시지에 주입한 요청을 반환합니다.
+    def _apply_skills(self, request: ModelRequest) -> tuple[ModelRequest | None, list[str]]:
+        """선택된 스킬 지침을 시스템 메시지에 주입한 요청과 스킬 목록을 반환합니다.
 
-        선택된 스킬이 없으면 None을 반환하여 원본 요청을 그대로 사용하도록 합니다.
+        선택된 스킬이 없으면 (None, [])을 반환하여 원본 요청을 그대로 사용하도록 합니다.
         동기/비동기 경로가 공유하는 순수 로직으로 I/O를 수행하지 않습니다.
         """
 
         selected = self.select_skills(request.state)
         if not selected:
-            return None
+            return None, []
         blocks = [f"<skill name=\"{name}\">\n{self.skills[name]['instructions']}\n</skill>" for name in selected]
         current = request.system_message.content if request.system_message else ""
-        updated_state = dict(request.state)
-        updated_state["active_skills"] = selected
         logger.info("스킬 활성화 | skills=%s", ",".join(selected))
-        return request.override(
+        updated = request.override(
             system_message=SystemMessage(content=f"{current}\n\n## Activated project skills\n" + "\n\n".join(blocks)),
-            state=updated_state,
+        )
+        return updated, selected
+
+    def wrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse | ExtendedModelResponse:
+        updated, selected = self._apply_skills(request)
+        if updated is None:
+            return handler(request)
+        return ExtendedModelResponse(
+            model_response=handler(updated),
+            command=Command(update={"active_skills": selected}),
         )
 
-    def wrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
-        updated = self._apply_skills(request)
-        return handler(updated if updated is not None else request)
-
-    async def awrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse:
-        updated = self._apply_skills(request)
-        return await handler(updated if updated is not None else request)
+    async def awrap_model_call(self, request: ModelRequest, handler: Any) -> ModelResponse | ExtendedModelResponse:
+        updated, selected = self._apply_skills(request)
+        if updated is None:
+            return await handler(request)
+        return ExtendedModelResponse(
+            model_response=await handler(updated),
+            command=Command(update={"active_skills": selected}),
+        )
 
 
 skill_middleware = SkillMiddleware()
@@ -210,9 +226,11 @@ def response_middleware(state: SecurityState, runtime: Runtime) -> dict[str, lis
         "High": "영향 범위를 확인하고 탐지 항목을 신속히 수정한 뒤 재검사하세요.",
         "Critical": "즉시 노출을 차단하고 담당자에게 알린 뒤 긴급 수정 및 재검사를 수행하세요.",
     }
+    active_skills = state.get("active_skills") or []
     content = (
         "## 보안 분석 최종 요약\n\n"
         f"- 분석 파일: `{state.get('file_path', '알 수 없음')}`\n"
+        f"- 사용 스킬: {', '.join(active_skills) if active_skills else '없음'}\n"
         f"- 탐지 결과: {len(findings)}건\n"
         f"- 위험도: **{risk_level}**\n"
         f"- 권장 조치: {recommendations[risk_level]}"
